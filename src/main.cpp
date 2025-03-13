@@ -3,13 +3,19 @@
 #include <PubSubClient.h>
 #include <RCSwitch.h>
 #include <map>
-
+#include <WiFiManager.h> 
 #include <EEPROM.h>
 #define EEPROM_SIZE 10  // Allocate enough bytes to store switch states
 
 // ✅ WiFi Credentials
-const char* ssid = "DMA-IR-Bluster";
-const char* password = "dmabd987";
+// const char* ssid = "DMA-IR-Bluster";
+// const char* password = "dmabd987";
+
+#define RESET_PIN 0  // GPIO 0 for WiFi reset
+unsigned long buttonPressTime = 0;
+bool resetFlag = false;
+
+WiFiManager wm;
 
 #define DEBUG_MODE true
 #define DEBUG_PRINT(x)  if (DEBUG_MODE) { Serial.print(x); }
@@ -62,16 +68,46 @@ PubSubClient client(espClient);
 unsigned long lastRFGlobalReceivedTime = 0;
 std::map<unsigned long, unsigned long> lastRFReceivedTimeMap;
 
+void resetWiFi() {
+    if (digitalRead(RESET_PIN) == LOW) {  // Button pressed
+        DEBUG_PRINTLN("Button Pressed... Waiting for 5 seconds");
+
+        unsigned long pressStart = millis();
+        while (millis() - pressStart < 5000) {  // Wait for 5 seconds
+            if (digitalRead(RESET_PIN) == HIGH) {  
+                DEBUG_PRINTLN("Button Released... Canceling Reset.");
+                return;  // Exit if the button is released early
+            }
+            delay(100);
+        }
+
+        DEBUG_PRINTLN("Resetting WiFi...");
+        digitalWrite(SW1_PIN, LOW);
+        digitalWrite(SW2_PIN, LOW);
+        digitalWrite(SW3_PIN, LOW);
+        digitalWrite(SW4_PIN, LOW);
+        wm.resetSettings();  // Clear saved WiFi credentials
+        wm.autoConnect("DMA_Smart_Switch");
+        ESP.restart();       // Restart ESP
+    }
+}
+
+
 // Function to reconnect to WiFi
 void reconnectWiFi() {
     int attempt = 0;
     DEBUG_PRINTLN("Connecting to WiFi...");
-    WiFi.begin(ssid, password);
+    // WiFi.begin(ssid, password);
+    WiFi.begin();  // Use saved credentials
     while (WiFi.status() != WL_CONNECTED && attempt < WIFI_ATTEMPT_COUNT) {
         DEBUG_PRINT("Remaining WiFi Attempt: ");
         DEBUG_PRINTLN(WIFI_ATTEMPT_COUNT - attempt - 1);
         delay(WIFI_ATTEMPT_DELAY);
         attempt++;
+        if (digitalRead(RESET_PIN) == LOW){
+            resetWiFi();
+            break;
+        }
     }
 
     if (WiFi.status() == WL_CONNECTED) {
@@ -81,6 +117,12 @@ void reconnectWiFi() {
 
         for (int waitAttempt = 0; waitAttempt < WIFI_WAIT_COUNT; waitAttempt++) {
             delay(WIFI_WAIT_DELAY);
+            
+            if (digitalRead(RESET_PIN) == LOW){
+                resetWiFi();
+                break;
+            }
+
             if (WiFi.status() == WL_CONNECTED) {
                 DEBUG_PRINTLN("WiFi Connected during wait time!");
                 return;
@@ -114,6 +156,9 @@ void reconnectMQTT() {
 
             // client.subscribe(mqtt_sub_topic);
             digitalWrite(LED_PIN, HIGH);
+            if (digitalRead(RESET_PIN) == LOW){
+                resetWiFi();
+            }
             return;
         } else {
             DEBUG_PRINTLN("MQTT connection failed");
@@ -121,6 +166,10 @@ void reconnectMQTT() {
             DEBUG_PRINTLN(MQTT_ATTEMPT_COUNT - attempt - 1);
             attempt++;
             delay(MQTT_ATTEMPT_DELAY);
+
+            if (digitalRead(RESET_PIN) == LOW){
+                resetWiFi();
+            }
         }
     }
 
@@ -225,6 +274,8 @@ void setup() {
     pinMode(SW3_PIN, OUTPUT);
     pinMode(SW4_PIN, OUTPUT);
 
+    pinMode(RESET_PIN, INPUT_PULLUP);
+
     EEPROM.begin(EEPROM_SIZE);  // Initialize EEPROM
 
     // Restore switch states
@@ -232,6 +283,12 @@ void setup() {
     digitalWrite(SW2_PIN, EEPROM.read(1) ? HIGH : LOW);
     digitalWrite(SW3_PIN, EEPROM.read(2) ? HIGH : LOW);
     digitalWrite(SW4_PIN, EEPROM.read(3) ? HIGH : LOW);
+
+    // WiFi.mode(WIFI_STA);
+    // if (!wm.autoConnect("DMA_Device")) {  // Try to connect, else start AP
+    //     Serial.println("Failed to connect, restarting...");
+    //     ESP.restart();
+    // }
     
     // reconnectWiFi();
     client.setServer(mqtt_server, 1883);
@@ -260,8 +317,11 @@ void loop() {
             client.loop();
         }
     }
-      
-    
+
+    if (digitalRead(RESET_PIN) == LOW){
+        resetWiFi();
+    }
+
     unsigned long now = millis();
     if (mySwitch.available()) {
       unsigned long receivedCode = mySwitch.getReceivedValue();
