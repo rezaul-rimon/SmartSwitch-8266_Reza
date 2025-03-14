@@ -260,7 +260,51 @@ void callback(char* topic, byte* payload, unsigned int length) {
         char data[32];
         snprintf(data, sizeof(data), "%s,sw4:1", DEVICE_ID);
         client.publish(mqtt_pub_topic, data);
-    }    
+    }   
+    // Turn Off all of Switches
+    else if (message == "sw1234:0") {
+        digitalWrite(SW1_PIN, LOW);
+        digitalWrite(SW2_PIN, LOW);
+        digitalWrite(SW3_PIN, LOW);
+        digitalWrite(SW4_PIN, LOW);
+        DEBUG_PRINTLN("Switch-All: off");
+        EEPROM.write(0, 0);
+        EEPROM.write(1, 0);
+        EEPROM.write(2, 0);
+        EEPROM.write(3, 0);
+        EEPROM.commit();
+        char data[32];
+        snprintf(data, sizeof(data), "%s,sw1234:0", DEVICE_ID);
+        client.publish(mqtt_pub_topic, data);
+    }
+    // Turn On all of Switches
+    else if (message == "sw1234:1") {
+        digitalWrite(SW1_PIN, HIGH);
+        digitalWrite(SW2_PIN, HIGH);
+        digitalWrite(SW3_PIN, HIGH);
+        digitalWrite(SW4_PIN, HIGH);
+        DEBUG_PRINTLN("Switch-All: on");
+        EEPROM.write(0, 1);
+        EEPROM.write(1, 1);
+        EEPROM.write(2, 1);
+        EEPROM.write(3, 1);
+        EEPROM.commit();
+        char data[32];
+        snprintf(data, sizeof(data), "%s,sw1234:1", DEVICE_ID);
+        client.publish(mqtt_pub_topic, data);
+    } 
+
+    if (message == "ping") {
+        DEBUG_PRINTLN("Request for ping");
+        char pingData[100]; // Increased size for additional info
+        snprintf(pingData, sizeof(pingData), "%s,%s,%s,%d,%d",
+        DEVICE_ID, WiFi.SSID().c_str(),
+        WiFi.localIP().toString().c_str(), WiFi.RSSI(), HB_INTERVAL);
+        client.publish(mqtt_pub_topic, pingData);
+    
+        DEBUG_PRINT("Sent ping response to MQTT: ");
+        DEBUG_PRINTLN(pingData);
+    }
     
 }
 
